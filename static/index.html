@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PromptCAD</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--surface:#13131a;--border:#1e1e2e;--accent:#7c6aff;--accent2:#ff6a9b;--text:#e8e8f0;--muted:#4a4a6a;--success:#4fffb0;--error:#ff4f6a;--mono:'Space Mono',monospace;--sans:'Syne',sans-serif;--log-w:360px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+.step-result-header{display:flex;align-items:center;gap:16px;margin-bottom:4px}
+#step-result .step-connector,#step-enhance .step-connector{margin-left:27px}
+#step-result.done .step-number,#step-enhance.done .step-number{border-color:var(--success);background:rgba(79,255,176,.1);color:var(--success)}
+#step-result.active .step-number,#step-enhance.active .step-number{border-color:var(--accent);color:var(--accent);box-shadow:0 0 20px rgba(124,106,255,.3)}
+#step-result .step-label,#step-enhance .step-label{font-size:11px;font-family:var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+#step-result.active .step-label,#step-enhance.active .step-label{color:var(--accent)}
+#step-result.done .step-label,#step-enhance.done .step-label{color:var(--success)}
+#step-result .step-title,#step-enhance .step-title{font-size:22px;font-weight:600;color:var(--text);letter-spacing:-.01em}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(124,106,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(124,106,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* ── Log Panel ── */
+.log-panel{position:fixed;left:0;top:0;bottom:0;width:var(--log-w);background:#0d0d14;border-right:1px solid var(--border);z-index:200;transform:translateX(calc(-1 * var(--log-w)));transition:transform .35s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
+.log-panel.open{transform:translateX(0)}
+.log-header{padding:20px 16px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.log-title{font-family:var(--mono);font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--accent)}
+.log-close{background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;transition:all .2s}
+.log-close:hover{color:var(--text);border-color:var(--accent)}
+.log-steps{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0}
+.log-tab{flex:1;padding:10px 6px;text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+.log-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.log-body{flex:1;overflow-y:auto;padding:0}
+.log-section{display:none;height:100%}
+.log-section.active{display:flex;flex-direction:column}
+.log-entries{flex:1;overflow-y:auto;padding:12px}
+.log-entry{display:flex;gap:8px;margin-bottom:8px;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.log-time{font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;margin-top:1px}
+.log-msg{font-family:var(--mono);font-size:11px;line-height:1.6;word-break:break-all}
+.log-msg.info{color:#8080b0}
+.log-msg.step{color:var(--accent)}
+.log-msg.success{color:var(--success)}
+.log-msg.error{color:var(--error)}
+.log-msg.data{color:#c9c3ff}
+.log-msg.scale{color:var(--accent2)}
+.log-explain{padding:16px;font-family:var(--mono);font-size:11px;line-height:1.8;color:#8080b0;border-bottom:1px solid var(--border)}
+.log-explain b{color:var(--accent);display:block;margin-bottom:6px;font-size:12px}
+.log-explain code{color:#c9c3ff;background:rgba(124,106,255,.1);padding:1px 4px;border-radius:3px}
+
+/* ── Toggle Button ── */
+.log-toggle{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:201;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;padding:16px 10px;cursor:pointer;transition:all .3s;display:flex;flex-direction:column;align-items:center;gap:6px}
+.log-toggle:hover{border-color:var(--accent);background:#1a1a2e}
+.log-toggle.shifted{left:var(--log-w)}
+.log-toggle-icon{font-size:16px;transition:transform .3s}
+.log-toggle.shifted .log-toggle-icon{transform:rotate(180deg)}
+.log-toggle-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);writing-mode:vertical-lr}
+
+/* ── Main layout ── */
+.main-wrap{transition:margin-left .35s cubic-bezier(.4,0,.2,1)}
+.main-wrap.shifted{margin-left:var(--log-w)}
+.container{max-width:1800px;margin:0 auto;padding:60px 32px 100px;position:relative;z-index:1}
+header{margin-bottom:64px;text-align:center}
+.logo{font-family:var(--sans);font-weight:800;font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+.logo::before,.logo::after{content:'';width:32px;height:1px;background:var(--accent);opacity:.5}
+h1{font-size:clamp(36px,6vw,64px);font-weight:800;line-height:1.05;letter-spacing:-.02em;background:linear-gradient(135deg,#fff 0%,#a09aff 50%,#ff6a9b 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:16px}
+.subtitle{color:var(--muted);font-size:15px;font-family:var(--mono);letter-spacing:.02em}
+.pipeline{display:grid;grid-template-columns:repeat(6,1fr);gap:32px;align-items:start}
+#step-upload{grid-column:span 1}
+#step-preview{grid-column:span 3}
+#step-inference{grid-column:span 2}
+#step-result{grid-column:span 6}
+#step-enhance{grid-column:span 3}
+#step-export{grid-column:span 3}
+#step-result .step-body{overflow:visible}
+.step{position:relative;opacity:0;transform:translateY(30px);transition:opacity .5s ease,transform .5s ease;align-self:start}
+.step.visible{opacity:1;transform:translateY(0)}
+.step-connector{display:none}
+.step-inner{display:flex;gap:20px;align-items:flex-start}
+.step-number{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--muted);flex-shrink:0;transition:all .3s ease}
+.step.active .step-number{border-color:var(--accent);color:var(--accent);box-shadow:0 0 20px rgba(124,106,255,.3)}
+.step.done .step-number{border-color:var(--success);background:rgba(79,255,176,.1);color:var(--success)}
+.step-content{flex:1;padding-bottom:8px}
+.step-label{font-size:11px;font-family:var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.step.active .step-label{color:var(--accent)}
+.step.done .step-label{color:var(--success)}
+.step-title{font-size:22px;font-weight:600;color:var(--text);margin-bottom:16px;letter-spacing:-.01em}
+.step-body{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:4px;transition:border-color .3s}
+.step.active .step-body{border-color:rgba(124,106,255,.3)}
+.drop-zone{border:2px dashed var(--border);border-radius:10px;padding:48px 24px;text-align:center;cursor:pointer;transition:all .3s ease;background:rgba(124,106,255,.02);position:relative;overflow:hidden}
+.drop-zone:hover,.drop-zone.dragging{border-color:var(--accent);background:rgba(124,106,255,.06);transform:scale(1.01)}
+.drop-icon{font-size:40px;margin-bottom:16px;display:block;transition:transform .3s}
+.drop-zone:hover .drop-icon{transform:translateY(-4px)}
+.drop-title{font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px}
+.drop-sub{font-size:13px;font-family:var(--mono);color:var(--muted)}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.viewer-wrap{position:relative;border-radius:10px;overflow:hidden;background:#080810}
+.viewer-label{position:absolute;top:12px;left:12px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;z-index:10;background:rgba(8,8,16,.8);padding:4px 10px;border-radius:4px;border:1px solid var(--border)}
+canvas{display:block;width:100%!important;height:280px!important}
+.viewer-hint{text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);padding:8px 0 0}
+.progress-steps{display:flex;flex-direction:column;gap:12px}
+.progress-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.02);transition:all .3s}
+.progress-item.running{border-color:rgba(124,106,255,.4);background:rgba(124,106,255,.05)}
+.progress-item.done{border-color:rgba(79,255,176,.3);background:rgba(79,255,176,.03)}
+.progress-item.error{border-color:rgba(255,79,106,.4);background:rgba(255,79,106,.05)}
+.progress-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
+.progress-item.running .progress-dot{background:var(--accent);animation:pulse 1s infinite}
+.progress-item.done .progress-dot{background:var(--success)}
+.progress-item.error .progress-dot{background:var(--error)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.5)}}
+.progress-text{font-size:13px;font-family:var(--mono);color:var(--muted);flex:1}
+.progress-item.running .progress-text{color:var(--text)}
+.progress-item.done .progress-text{color:var(--success)}
+.progress-item.error .progress-text{color:var(--error)}
+.progress-icon{font-size:14px;width:20px;text-align:center}
+.code-block{background:#080810;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.code-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02)}
+.code-lang{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.1em}
+.copy-btn{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:4px;padding:4px 10px;cursor:pointer;transition:all .2s;letter-spacing:.05em}
+.copy-btn:hover{color:var(--text);border-color:var(--accent)}
+pre{padding:20px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.7;color:#c9c3ff;max-height:260px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.metric{background:rgba(124,106,255,.06);border:1px solid rgba(124,106,255,.2);border-radius:8px;padding:14px 12px;text-align:center}
+.metric-value{font-size:18px;font-weight:700;font-family:var(--mono);color:var(--accent);display:block;margin-bottom:4px}
+.metric-label{font-size:10px;font-family:var(--mono);color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.scale-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;margin-bottom:16px}
+.scale-badge.uniform{background:rgba(79,255,176,.08);border:1px solid rgba(79,255,176,.25);color:var(--success)}
+.scale-badge.axis{background:rgba(124,106,255,.08);border:1px solid rgba(124,106,255,.25);color:var(--accent)}
+.triple-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:8px;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.05em;cursor:pointer;transition:all .2s ease;border:none;text-decoration:none}
+.btn-primary{background:var(--accent);color:white;box-shadow:0 4px 20px rgba(124,106,255,.3)}
+.btn-primary:hover{background:#9080ff;transform:translateY(-1px)}
+.btn-outline{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-success{background:rgba(79,255,176,.1);color:var(--success);border:1px solid rgba(79,255,176,.3)}
+.btn-success:hover{background:rgba(79,255,176,.2)}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+.error-box{background:rgba(255,79,106,.08);border:1px solid rgba(255,79,106,.3);border-radius:8px;padding:16px;font-family:var(--mono);font-size:13px;color:var(--error)}
+.file-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(124,106,255,.1);border:1px solid rgba(124,106,255,.3);border-radius:6px;padding:8px 14px;font-family:var(--mono);font-size:13px;color:var(--accent);margin-bottom:16px}
+.spinner{width:16px;height:16px;border:2px solid rgba(124,106,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.reset-btn{position:fixed;top:24px;right:24px;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 14px;cursor:pointer;letter-spacing:.05em;transition:all .2s;z-index:100;display:none}
+.reset-btn:hover{color:var(--text);border-color:var(--accent)}
+.reset-btn.visible{display:block}
+.tab-bar{display:flex;gap:4px;margin-bottom:16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px}
+.tab{flex:1;padding:8px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);cursor:pointer;border-radius:5px;transition:all .2s}
+.tab.active{background:var(--accent);color:white}
+.model-row{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.model-row label{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em}
+.model-input{background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 12px;border-radius:6px;width:200px;outline:none;transition:border-color .2s}
+.model-input:focus{border-color:var(--accent)}
+.gold-label{color:#ffd700!important}
+.source-opt{display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--muted);transition:all .2s;background:rgba(255,255,255,.02);user-select:none}
+.source-opt.selected{border-color:var(--accent);color:var(--text);background:rgba(124,106,255,.08)}
+.source-opt.disabled{opacity:.35;pointer-events:none}
+.source-opt input[type=radio]{accent-color:var(--accent);margin:0;flex-shrink:0}
+.path-box{font-family:var(--mono);font-size:11px;background:#080810;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;word-break:break-all;line-height:1.7}
+</style>
+</head>
+<body>
+
+<!-- ── Log Panel ── -->
+<div class="log-panel" id="logPanel">
+  <div class="log-header">
+    <span class="log-title">System Log</span>
+    <button class="log-close" onclick="toggleLog()">Schließen ✕</button>
+  </div>
+  <div class="log-steps">
+    <div class="log-tab active" onclick="switchLogTab('log')">Live Log</div>
+    <div class="log-tab" onclick="switchLogTab('upload')">Upload</div>
+    <div class="log-tab" onclick="switchLogTab('inference')">Inference</div>
+    <div class="log-tab" onclick="switchLogTab('scale')">SmartScaler</div>
+  </div>
+  <div class="log-body">
+
+    <div class="log-section active" id="logsec-log">
+      <div class="log-entries" id="logEntries"></div>
+    </div>
+
+    <div class="log-section" id="logsec-upload">
+      <div class="log-explain">
+        <b>Was passiert hier?</b>
+        Die STL-Datei wird vom Browser eingelesen und an den lokalen Flask-Server (<code>app.py</code>) gesendet. Der Server speichert die Datei unter einem eindeutigen Job-ID-Namen im <code>uploads/</code> Ordner. Gleichzeitig wird ein Job-Objekt erstellt und ein Background-Thread gestartet, der die Inferenz asynchron ausführt.
+        <br><br>
+        <b>Technische Details</b><br>
+        · Protokoll: <code>HTTP POST multipart/form-data</code><br>
+        · Job-ID: UUID (8 Zeichen)<br>
+        · Format: Binär-STL oder ASCII-STL<br>
+        · Three.js parst die STL direkt im Browser für die 3D-Vorschau
+      </div>
+      <div class="log-entries" id="log-upload-entries"></div>
+    </div>
+
+    <div class="log-section" id="logsec-inference">
+      <div class="log-explain">
+        <b>Was passiert hier?</b>
+        Das Modell mesh-to-cadquery-qwen (Qwen2-1.5B + FourierPointEncoder) wird auf die GPU geladen. Die STL wird in eine Punktwolke mit 256 Punkten konvertiert (Farthest Point Sampling). Anschließend werden 10 Kandidaten generiert — jedes Mal mit einem anderen FPS-Sample, damit die Ausgaben variieren.
+        <br><br>
+        <b>Architektur</b><br>
+        · Base LLM: <code>Qwen2-1.5B</code><br>
+        · Point Encoder: <code>FourierPointEncoder(51→1536)</code><br>
+        · Fourier-Frequenzen: <code>2⁰ bis 2⁷</code> (8 Frequenzen)<br>
+        · Input: <code>[pad]×256 + [im_start]</code><br>
+        · max_new_tokens: <code>768</code><br>
+        · Selektion: niedrigste Chamfer Distance
+      </div>
+      <div class="log-entries" id="log-inference-entries"></div>
+    </div>
+
+    <div class="log-section" id="logsec-scale">
+      <div class="log-explain">
+        <b>Was passiert hier?</b>
+        Das Modell gibt normalisierte Koordinaten im Bereich [-100, 100] aus — die echten Maße sind unbekannt. Der SmartScaler vergleicht die Bounding-Box-Ausdehnungen der originalen und generierten STL und berechnet einen Korrekturfaktor pro Achse.
+        <br><br>
+        <b>Formel</b><br>
+        <code>scale_x = orig_extent_x / gen_extent_x</code><br>
+        <code>scale_y = orig_extent_y / gen_extent_y</code><br>
+        <code>scale_z = orig_extent_z / gen_extent_z</code><br><br>
+        <b>Rescaling-Methode</b><br>
+        · LLM (LM Studio): reschreibt alle Zahlenwerte im CadQuery-Code<br>
+        · Regex-Fallback: multipliziert alle Zahlen mit dem uniformen Faktor
+      </div>
+      <div class="log-entries" id="log-scale-entries"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Toggle Button ── -->
+<div class="log-toggle" id="logToggle" onclick="toggleLog()" title="System-Log ein-/ausblenden">
+  <span class="log-toggle-icon">›</span>
+  <span class="log-toggle-label">System Log</span>
+</div>
+
+<button class="reset-btn" id="resetBtn" onclick="resetApp()">↺ Neu starten</button>
+
+<div class="main-wrap" id="mainWrap">
+<div class="container">
+  <header>
+    <div class="logo">PromptCAD</div>
+    <h1>Point Cloud<br>zu CAD-Code</h1>
+    <p class="subtitle">STL einlesen · Inference · Smart Scale · Vergleichen</p>
+  </header>
+
+  <div class="pipeline" id="pipeline">
+
+    <!-- SCHRITT 1: Upload -->
+    <div class="step visible active" id="step-upload">
+      <div class="step-inner">
+        <div class="step-number">01</div>
+        <div class="step-content">
+          <div class="step-label">Schritt 01</div>
+          <div class="step-title">STL-Datei hochladen</div>
+          <div class="step-body">
+            <div class="drop-zone" id="dropZone">
+              <input type="file" accept=".stl,.STL" id="fileInput" onchange="handleFile(this.files[0])">
+              <span class="drop-icon">⬡</span>
+              <div class="drop-title">STL hier ablegen</div>
+              <div class="drop-sub">oder klicken zum Durchsuchen · nur .stl Dateien</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHRITT 2: Vorschau -->
+    <div class="step" id="step-preview">
+      <div class="step-connector"></div>
+      <div class="step-inner">
+        <div class="step-number">02</div>
+        <div class="step-content">
+          <div class="step-label">Schritt 02</div>
+          <div class="step-title">Vorschau & Bestätigung</div>
+          <div class="step-body">
+            <div id="fileInfo"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="viewer-wrap">
+                <div class="viewer-label">Eingabe-Mesh</div>
+                <canvas id="inputCanvas"></canvas>
+              </div>
+              <div class="viewer-wrap">
+                <div class="viewer-label" style="color:var(--accent2)">Point Cloud · 256 pts</div>
+                <canvas id="pointCanvas"></canvas>
+              </div>
+            </div>
+            <p class="viewer-hint">Ziehen zum Drehen · Scrollen zum Zoomen</p>
+            <br>
+            <button class="btn btn-primary" onclick="startInference()">⚡ Inference starten</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHRITT 3: Inference + Skalierung -->
+    <div class="step" id="step-inference">
+      <div class="step-connector"></div>
+      <div class="step-inner">
+        <div class="step-number">03</div>
+        <div class="step-content">
+          <div class="step-label">Schritt 03</div>
+          <div class="step-title">Inference & Smart Scale</div>
+          <div class="step-body">
+            <div class="progress-steps" id="progressSteps">
+              <div class="progress-item pending" id="prog-inference">
+                <div class="progress-dot"></div>
+                <span class="progress-text">Modell laden & 10-Sample Inference ausführen</span>
+                <span class="progress-icon">⚙</span>
+              </div>
+              <div class="progress-item pending" id="prog-scale">
+                <div class="progress-dot"></div>
+                <span class="progress-text">SmartScaler: Abmessungen analysieren & skalieren</span>
+                <span class="progress-icon">⬡</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHRITT 4: Ergebnis (full width, centered) -->
+    <div class="step" id="step-result">
+      <div class="step-connector"></div>
+      <div class="step-result-header">
+        <div class="step-number" id="result-number">04</div>
+        <div>
+          <div class="step-label" id="result-label">Schritt 04</div>
+          <div class="step-title">Ergebnis</div>
+        </div>
+      </div>
+      <div class="step-body" id="resultBody" style="margin-top:16px"></div>
+    </div>
+
+    <!-- SCHRITT 5: Supervisor-Model Correction -->
+    <div class="step" id="step-enhance">
+      <div class="step-connector"></div>
+      <div class="step-result-header">
+        <div class="step-number">05</div>
+        <div>
+          <div class="step-label">Schritt 05</div>
+          <div class="step-title">Supervisor-Model Correction</div>
+        </div>
+      </div>
+      <div class="step-body" style="margin-top:16px">
+        <div class="model-row">
+          <label>Ollama URL:</label>
+          <input id="ollamaUrl" class="model-input" type="text" value="http://127.0.0.1:11434" placeholder="http://&lt;hpc-ip&gt;:11434" style="width:220px"/>
+          <label>Model:</label>
+          <input id="modelInput" class="model-input" type="text" value="qwen3.5:122b" placeholder="qwen3.5:122b" />
+          <button class="btn btn-primary" onclick="startEnhancement()" id="enhanceBtn">⚡ Supervisor Correction starten</button>
+          <button class="btn btn-outline" onclick="skipToExport()" id="skipEnhanceBtn" style="margin-left:4px">Skip → Export to SolidWorks</button>
+        </div>
+        <div id="enhance-progress" style="display:none">
+          <div class="progress-steps">
+            <div class="progress-item pending" id="prog-enhance-llm">
+              <div class="progress-dot"></div>
+              <span class="progress-text">Supervisor model aufrufen…</span>
+              <span class="progress-icon">⚙</span>
+            </div>
+            <div class="progress-item pending" id="prog-enhance-exec">
+              <div class="progress-dot"></div>
+              <span class="progress-text">Corrected code ausführen…</span>
+              <span class="progress-icon">⚙</span>
+            </div>
+            <div class="progress-item pending" id="prog-enhance-scale">
+              <div class="progress-dot"></div>
+              <span class="progress-text">SmartScaler auf korrigierten Part anwenden…</span>
+              <span class="progress-icon">⬡</span>
+            </div>
+          </div>
+        </div>
+        <div id="enhance-result" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- SCHRITT 6: Translate & Export to SolidWorks -->
+    <div class="step" id="step-export">
+      <div class="step-connector"></div>
+      <div class="step-result-header">
+        <div class="step-number">06</div>
+        <div>
+          <div class="step-label">Schritt 06</div>
+          <div class="step-title">Translate &amp; Export to SolidWorks</div>
+        </div>
+      </div>
+      <div class="step-body" style="margin-top:16px">
+
+        <!-- Source selector -->
+        <div style="margin-bottom:20px">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">Source Code</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <label class="source-opt selected" id="opt-original" onclick="selectExportSource('original')">
+              <input type="radio" name="export-source" value="original" checked>
+              <span>Step 4 — original result</span>
+            </label>
+            <label class="source-opt disabled" id="opt-supervised" onclick="selectExportSource('supervised')">
+              <input type="radio" name="export-source" value="supervised" disabled>
+              <span>Step 5 — supervisor result</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- JSON output path -->
+        <div class="path-box" id="export-path-box">
+          <span style="color:var(--accent)">Output JSON path (give this to the Builder):</span><br>
+          <span id="export-path-text" style="color:#c9c3ff">results/<span id="export-path-jobid">…</span>_translated.json</span>
+        </div>
+
+        <!-- Action button -->
+        <button class="btn btn-primary" onclick="startExport()" id="exportBtn">
+          ⬡ Translate &amp; Export to SolidWorks
+        </button>
+
+        <!-- Progress -->
+        <div id="export-progress" style="display:none;margin-top:20px">
+          <div class="progress-steps">
+            <div class="progress-item pending" id="prog-export-translate">
+              <div class="progress-dot"></div>
+              <span class="progress-text">CadQuery → SolidWorks JSON übersetzen…</span>
+              <span class="progress-icon">⬡</span>
+            </div>
+            <div class="progress-item pending" id="prog-export-build">
+              <div class="progress-dot"></div>
+              <span class="progress-text">SolidWorks Builder ausführen…</span>
+              <span class="progress-icon">⚙</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Done / error message -->
+        <div id="export-done" style="display:none;margin-top:16px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+// ── State ──
+let currentFile=null, currentJobId=null, pollInterval=null, inputBuffer=null;
+let logOpen=false;
+
+// ── Log Panel ──
+function toggleLog(){
+  logOpen=!logOpen;
+  document.getElementById('logPanel').classList.toggle('open',logOpen);
+  document.getElementById('logToggle').classList.toggle('shifted',logOpen);
+  document.getElementById('mainWrap').classList.toggle('shifted',logOpen);
+}
+
+function switchLogTab(name){
+  document.querySelectorAll('.log-tab').forEach((t,i)=>{
+    const names=['log','upload','inference','scale'];
+    t.classList.toggle('active',names[i]===name);
+  });
+  document.querySelectorAll('.log-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('logsec-'+name).classList.add('active');
+}
+
+function addLog(msg, type='info', section='log'){
+  const now=new Date();
+  const time=now.toTimeString().slice(0,8);
+  const entry=`<div class="log-entry"><span class="log-time">${time}</span><span class="log-msg ${type}">${escapeHtml(msg)}</span></div>`;
+  // Always add to main log
+  const main=document.getElementById('logEntries');
+  main.insertAdjacentHTML('beforeend',entry);
+  main.scrollTop=main.scrollHeight;
+  // Also add to section-specific log
+  const sec=document.getElementById(`log-${section}-entries`);
+  if(sec){ sec.insertAdjacentHTML('beforeend',entry); sec.scrollTop=sec.scrollHeight; }
+}
+
+// ── Drag & Drop ──
+const dropZone=document.getElementById('dropZone');
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragging');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragging'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragging');const f=e.dataTransfer.files[0];if(f&&f.name.toLowerCase().endsWith('.stl'))handleFile(f);});
+
+function handleFile(file){
+  if(!file)return;
+  currentFile=file;
+  dropZone.innerHTML=`<span class="drop-icon">✓</span><div class="drop-title" style="color:var(--success)">${file.name}</div><div class="drop-sub">${(file.size/1024).toFixed(1)} KB</div>`;
+  markStepDone('step-upload');
+  showStep('step-preview');
+  document.getElementById('fileInfo').innerHTML=`<div class="file-badge">⬡ ${file.name} · ${(file.size/1024).toFixed(1)} KB</div>`;
+  const reader=new FileReader();
+  reader.onload=e=>{inputBuffer=e.target.result;loadSTLViewer(inputBuffer,'inputCanvas');loadPointCloudViewer(inputBuffer,'pointCanvas',256);};
+  reader.readAsArrayBuffer(file);
+  document.getElementById('resetBtn').classList.add('visible');
+
+  addLog(`Datei geladen: ${file.name} (${(file.size/1024).toFixed(1)} KB)`,'step','upload');
+  addLog(`Dateigröße: ${(file.size/1024).toFixed(1)} KB · Format: ${file.name.toLowerCase().endsWith('.stl')?'STL (Stereolithography)':'Unbekannt'}`,'data','upload');
+  addLog(`Three.js STL-Parser gestartet — prüft Binary vs. ASCII-Format`,'info','upload');
+  addLog(`Binary STL: 84 + n×50 Bytes · ASCII STL: regex-basiert`,'data','upload');
+  addLog(`3D-Vorschau: WebGL-Renderer · PhongMaterial · DirectionalLight`,'info','upload');
+  addLog(`Farthest Point Sampling (FPS): 8192 → 256 Punkte bei Inference`,'info','upload');
+  addLog(`Normalisierung: Bounding-Box-Zentrierung + Skalierung auf [-1, 1]`,'data','upload');
+}
+
+// ── STL Viewer ──
+function loadSTLViewer(buffer,canvasId,color=0x7c6aff){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return;
+  const W=canvas.parentElement.clientWidth||400,H=280;
+  canvas.width=W;canvas.height=H;
+  const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  renderer.setSize(W,H);renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(0x080810,1);
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(45,W/H,0.1,1000);
+  const geo=parseSTL(buffer);
+  geo.computeVertexNormals();geo.center();
+  const bbox=new THREE.Box3().setFromObject(new THREE.Mesh(geo));
+  const size=bbox.getSize(new THREE.Vector3()).length();
+  camera.position.set(0,0,size*1.8);
+  const mat=new THREE.MeshPhongMaterial({color,emissive:0x0d0a20,specular:0xffffff,shininess:60,side:THREE.DoubleSide});
+  const mesh=new THREE.Mesh(geo,mat);
+  scene.add(mesh);
+  scene.add(new THREE.AmbientLight(0x404060,0.8));
+  const dl=new THREE.DirectionalLight(0xffffff,1.2);dl.position.set(1,2,3);scene.add(dl);
+  const fl=new THREE.DirectionalLight(0xff6a9b,0.4);fl.position.set(-2,-1,-1);scene.add(fl);
+  let drag=false,prev={x:0,y:0},rx=0.3,ry=0.5;
+  canvas.addEventListener('mousedown',e=>{drag=true;prev={x:e.clientX,y:e.clientY};});
+  canvas.addEventListener('mousemove',e=>{if(!drag)return;ry+=(e.clientX-prev.x)*.01;rx+=(e.clientY-prev.y)*.01;prev={x:e.clientX,y:e.clientY};});
+  canvas.addEventListener('mouseup',()=>drag=false);
+  canvas.addEventListener('wheel',e=>camera.position.z=Math.max(size*.5,Math.min(size*4,camera.position.z+e.deltaY*.01)));
+  (function anim(){requestAnimationFrame(anim);if(!drag)ry+=.003;mesh.rotation.x=rx;mesh.rotation.y=ry;renderer.render(scene,camera);})();
+}
+
+function sampleSurface(pos, n){
+  // Area-weighted triangle sampling + barycentric interpolation
+  // pos: THREE.BufferAttribute (non-indexed, 3 verts per tri)
+  const numTris=pos.count/3;
+  const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();
+  const tri=new THREE.Triangle();
+
+  // Compute area CDF
+  const areas=new Float32Array(numTris);
+  let total=0;
+  for(let i=0;i<numTris;i++){
+    a.fromBufferAttribute(pos,i*3);
+    b.fromBufferAttribute(pos,i*3+1);
+    c.fromBufferAttribute(pos,i*3+2);
+    tri.set(a,b,c);
+    const ar=tri.getArea();
+    areas[i]=ar; total+=ar;
+  }
+  const cdf=new Float32Array(numTris);
+  let cum=0;
+  for(let i=0;i<numTris;i++){cdf[i]=(cum+=areas[i]/total);}
+
+  // Sample
+  const out=new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    // Binary search for triangle
+    let lo=0,hi=numTris-1,r=Math.random();
+    while(lo<hi){const m=(lo+hi)>>1;if(cdf[m]<r)lo=m+1;else hi=m;}
+    a.fromBufferAttribute(pos,lo*3);
+    b.fromBufferAttribute(pos,lo*3+1);
+    c.fromBufferAttribute(pos,lo*3+2);
+    // Random barycentric point
+    let u=Math.random(),v=Math.random();
+    if(u+v>1){u=1-u;v=1-v;}
+    const w=1-u-v;
+    out[i*3]=a.x*w+b.x*u+c.x*v;
+    out[i*3+1]=a.y*w+b.y*u+c.y*v;
+    out[i*3+2]=a.z*w+b.z*u+c.z*v;
+  }
+  return out;
+}
+
+function loadPointCloudViewer(buffer, canvasId, n=512){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return;
+  const W=canvas.parentElement.clientWidth||400,H=280;
+  canvas.width=W;canvas.height=H;
+  const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  renderer.setSize(W,H);renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(0x080810,1);
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(45,W/H,0.1,1000);
+
+  const geo=parseSTL(buffer);
+  geo.center();
+  const pos=geo.attributes.position;
+
+  const sampled=sampleSurface(pos,n);
+
+  // Bounding box from sampled points for camera + color range
+  let yMin=Infinity,yMax=-Infinity,maxExt=0;
+  for(let i=0;i<n;i++){
+    const y=sampled[i*3+1];
+    if(y<yMin)yMin=y; if(y>yMax)yMax=y;
+    maxExt=Math.max(maxExt,Math.abs(sampled[i*3]),Math.abs(y),Math.abs(sampled[i*3+2]));
+  }
+  const size=maxExt*2||1;
+  const yRange=yMax-yMin||1;
+  camera.position.set(0,0,size*1.8);
+
+  // Height-based color gradient (accent purple → pink)
+  const colors=new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    const t=(sampled[i*3+1]-yMin)/yRange;
+    colors[i*3]=0.49+t*0.52;     // R: 0.49 → 1.0
+    colors[i*3+1]=0.42-t*0.0;    // G: flat
+    colors[i*3+2]=1.0-t*0.39;    // B: 1.0 → 0.61
+  }
+
+  const ptGeo=new THREE.BufferGeometry();
+  ptGeo.setAttribute('position',new THREE.Float32BufferAttribute(sampled,3));
+  ptGeo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+
+  const mat=new THREE.PointsMaterial({size:size*0.035,sizeAttenuation:true,vertexColors:true});
+  const points=new THREE.Points(ptGeo,mat);
+  scene.add(points);
+
+  let drag=false,prev={x:0,y:0},rx=0.3,ry=0.5;
+  canvas.addEventListener('mousedown',e=>{drag=true;prev={x:e.clientX,y:e.clientY};});
+  canvas.addEventListener('mousemove',e=>{if(!drag)return;ry+=(e.clientX-prev.x)*.01;rx+=(e.clientY-prev.y)*.01;prev={x:e.clientX,y:e.clientY};});
+  canvas.addEventListener('mouseup',()=>drag=false);
+  canvas.addEventListener('wheel',e=>camera.position.z=Math.max(size*.5,Math.min(size*4,camera.position.z+e.deltaY*.01)));
+  (function anim(){requestAnimationFrame(anim);if(!drag)ry+=.003;points.rotation.x=rx;points.rotation.y=ry;renderer.render(scene,camera);})();
+}
+
+function parseSTL(buffer){
+  const geo=new THREE.BufferGeometry();
+  const verts=[];
+  const numTri=new Uint32Array(buffer,80,1)[0];
+  if(buffer.byteLength===84+numTri*50){
+    const v=new DataView(buffer,84);
+    for(let i=0;i<numTri;i++)for(let j=0;j<3;j++)verts.push(v.getFloat32((i*50+12)+j*12,true),v.getFloat32((i*50+12)+j*12+4,true),v.getFloat32((i*50+12)+j*12+8,true));
+  }else{
+    const t=new TextDecoder().decode(buffer);
+    for(const m of t.matchAll(/vertex\s+([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)/g))verts.push(+m[1],+m[2],+m[3]);
+  }
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  return geo;
+}
+
+// ── Inference ──
+async function startInference(){
+  markStepDone('step-preview');
+  showStep('step-inference');
+  markStepActive('step-inference');
+
+  addLog('HTTP POST /upload → Flask Backend','step','upload');
+  addLog('Job-ID wird generiert (UUID 8 Zeichen)','info','upload');
+  addLog('Background-Thread gestartet → subprocess: inference.py','data','upload');
+  addLog('Statuspolling startet: GET /status/{job_id} alle 1.5s','info','upload');
+  addLog('──────────────────────────────','info','inference');
+  addLog('Modell: fourat25/mesh-to-cadquery-qwen','step','inference');
+  addLog('Base LLM: Qwen2-1.5B (1.54B Parameter)','data','inference');
+  addLog('Gewichte: bfloat16 auf CUDA GPU','data','inference');
+  addLog('FourierPointEncoder: Linear(51 → 1536) in float32','info','inference');
+  addLog('Fourier-Encoding: 3 coords × (sin+cos) × 8 freqs + raw = 51 dim','data','inference');
+  addLog('Frequencies: 2⁰=1, 2¹=2, 2²=4, ... 2⁷=128','data','inference');
+  addLog('Point Cloud Injection: attention_mask=-1 Positionen werden durch Point Embeddings ersetzt','info','inference');
+  addLog('Input-Sequenz: [pad]×256 + [im_start] → 257 Tokens','data','inference');
+  addLog('Autoregressive Dekodierung: max_new_tokens=768','info','inference');
+  addLog('Test-Time Sampling: 10 verschiedene FPS-Samples → 10 Kandidaten','info','inference');
+  addLog('Selektion: minimale Chamfer Distance zum Input','data','inference');
+
+  const fd=new FormData();fd.append('file',currentFile);
+  try{
+    const res=await fetch('/upload',{method:'POST',body:fd});
+    const data=await res.json();
+    if(data.error)throw new Error(data.error);
+    currentJobId=data.job_id;
+    addLog(`Job-ID: ${data.job_id}`,'data','upload');
+    pollStatus();
+  }catch(e){showError('Upload fehlgeschlagen: '+e.message);}
+}
+
+function pollStatus(){
+  let lastInfMsg='', lastScaleMsg='';
+  pollInterval=setInterval(async()=>{
+    const res=await fetch(`/status/${currentJobId}`);
+    const data=await res.json();
+    updateProgress(data);
+
+    // Log new messages
+    const infMsg=data.steps?.inference?.message||'';
+    const scaleMsg=data.steps?.scale?.message||'';
+    if(infMsg&&infMsg!==lastInfMsg){
+      addLog(infMsg,'info','inference');
+      if(infMsg.includes('Sample'))addLog('Point cloud sample → FPS(8192→256) → Fourier-Encode → LLM generate','data','inference');
+      lastInfMsg=infMsg;
+    }
+    if(scaleMsg&&scaleMsg!==lastScaleMsg){
+      addLog(scaleMsg,'scale','scale');
+      lastScaleMsg=scaleMsg;
+    }
+
+    if(data.status==='done'){
+      clearInterval(pollInterval);
+      markStepDone('step-inference');
+      const si=data.result?.scale_info||{};
+      const cd=data.result?.chamfer_distance;
+      addLog('Inference abgeschlossen — alle 10 Samples generiert','success','inference');
+      addLog(`Chamfer Distance (bestes Sample): ${cd?(cd/1000).toFixed(4):'—'}`,'data','inference');
+      addLog(`Beste Kandidat ausgewählt via argmin(Chamfer Distance)`,'success','inference');
+      addLog('──────────────────────────────','info','scale');
+      addLog('SmartScaler gestartet','step','scale');
+      addLog('Schritt 1: Punktwolken-Extraktion (5000 Punkte) aus beiden STLs','info','scale');
+      addLog(`Original STL-Ausdehnungen: ${si.gt_extents?.map(v=>v.toFixed(2)).join(' × ')||'—'} mm`,'data','scale');
+      addLog(`Generierte STL-Ausdehnungen: ${si.gen_extents?.map(v=>v.toFixed(2)).join(' × ')||'—'} mm`,'data','scale');
+      addLog('Schritt 2: Korrekturfaktor = orig_extent / gen_extent pro Achse','info','scale');
+      addLog(`scale_x = ${si.gt_extents?.[0]?.toFixed(2)} / ${si.gen_extents?.[0]?.toFixed(2)} = ${si.scale_x?.toFixed(4)}`,'data','scale');
+      addLog(`scale_y = ${si.gt_extents?.[1]?.toFixed(2)} / ${si.gen_extents?.[1]?.toFixed(2)} = ${si.scale_y?.toFixed(4)}`,'data','scale');
+      addLog(`scale_z = ${si.gt_extents?.[2]?.toFixed(2)} / ${si.gen_extents?.[2]?.toFixed(2)} = ${si.scale_z?.toFixed(4)}`,'data','scale');
+      addLog(`Std(scale_xyz) = ${si.is_uniform?'< 0.05 → Uniform-Modus':'≥ 0.05 → Per-Achsen-Modus'}`,'data','scale');
+      addLog(`Rescaling-Methode: ${si.llm_used?'LLM (LM Studio OpenAI-API) → Code neu schreiben':'Regex-Fallback → alle Zahlen ×' + si.uniform_scale?.toFixed(4)}`,'scale','scale');
+      addLog('Schritt 3: CadQuery-Code ausführen → korrigierte STL exportieren','info','scale');
+      addLog('Pipeline vollständig abgeschlossen ✓','success','log');
+      showResult(data.result);
+    }else if(data.status==='error'){
+      clearInterval(pollInterval);
+      addLog('FEHLER: '+data.error,'error','log');
+      showError(data.error);
+    }
+  },1500);
+}
+
+function updateProgress(data){
+  const map={inference:'prog-inference',scale:'prog-scale'};
+  for(const[key,id]of Object.entries(map)){
+    const s=data.steps?.[key];if(!s)continue;
+    const el=document.getElementById(id);
+    el.className=`progress-item ${s.status}`;
+    el.querySelector('.progress-text').textContent=s.message;
+    const icon=el.querySelector('.progress-icon');
+    if(s.status==='running')icon.innerHTML='<div class="spinner"></div>';
+    else if(s.status==='done')icon.textContent='✓';
+    else if(s.status==='error')icon.textContent='✗';
+  }
+}
+
+// ── Result ──
+function showResult(result){
+  showStep('step-result');
+  markStepDone('step-result');
+  const si=result.scale_info||{};
+  const cd=result.chamfer_distance;
+  const sx=(si.scale_x||1).toFixed(3),sy=(si.scale_y||1).toFixed(3),sz=(si.scale_z||1).toFixed(3);
+  const isUniform=si.is_uniform;
+  const scaleStr=isUniform?`×${si.uniform_scale?.toFixed(3)}`:`x:${sx} y:${sy} z:${sz}`;
+  const scaleBadgeClass=isUniform?'uniform':'axis';
+  const llmTag=si.llm_used?'🤖 LLM rescaled':'📐 Regex rescaled';
+
+  document.getElementById('resultBody').innerHTML=`
+    <div class="metrics">
+      <div class="metric"><span class="metric-value">${cd?(cd/1000).toFixed(3):'—'}</span><span class="metric-label">Chamfer Distance</span></div>
+      <div class="metric"><span class="metric-value">10</span><span class="metric-label">Samples</span></div>
+      <div class="metric"><span class="metric-value">${isUniform?'Uniform':'Per-Achse'}</span><span class="metric-label">Scale-Modus</span></div>
+      <div class="metric"><span class="metric-value">${si.llm_used?'LLM':'Regex'}</span><span class="metric-label">Rescale-Methode</span></div>
+    </div>
+    <div class="scale-badge ${scaleBadgeClass}">⬡ Skalierungskorrektur: ${scaleStr} · ${llmTag}</div>
+    ${si.gt_extents?.length?`<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:16px">
+      Original: ${si.gt_extents.map(v=>v.toFixed(1)).join(' × ')} mm &nbsp;→&nbsp;
+      Generiert: ${si.gen_extents.map(v=>v.toFixed(1)).join(' × ')} mm
+    </div>`:''}
+    <div class="triple-grid">
+      <div><div class="viewer-wrap"><div class="viewer-label">Original</div><canvas id="cmp-original"></canvas></div></div>
+      <div><div class="viewer-wrap"><div class="viewer-label" style="color:#ff6a9b">Generiert (roh)</div><canvas id="cmp-generated"></canvas></div></div>
+      <div><div class="viewer-wrap"><div class="viewer-label" style="color:var(--success)">Skaliert ✓</div><canvas id="cmp-corrected"></canvas></div></div>
+    </div>
+    <div class="tab-bar" id="tabBar">
+      <div class="tab active" onclick="switchTab('corrected')">Skalierter Code</div>
+      <div class="tab" onclick="switchTab('generated')">Roher generierter Code</div>
+    </div>
+    <div id="tab-corrected">
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">PYTHON · CADQUERY · RESCALED</span><button class="copy-btn" onclick="copyCode('corrected')">KOPIEREN</button></div>
+        <pre id="code-corrected">${escapeHtml(result.corrected_code||result.generated_code)}</pre>
+      </div>
+    </div>
+    <div id="tab-generated" style="display:none">
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">PYTHON · CADQUERY · RAW</span><button class="copy-btn" onclick="copyCode('generated')">KOPIEREN</button></div>
+        <pre id="code-generated">${escapeHtml(result.generated_code)}</pre>
+      </div>
+    </div>
+    <div class="actions">
+      ${result.corrected_stl_url?`<a class="btn btn-success" href="${result.corrected_stl_url}" download>↓ Skalierte STL herunterladen</a>`:''}
+      <a class="btn btn-outline" href="${result.gen_stl_url}" download>↓ Rohe STL herunterladen</a>
+      <button class="btn btn-outline" onclick="resetApp()">↺ Neu starten</button>
+    </div>`;
+
+  if(inputBuffer)loadSTLViewer(inputBuffer,'cmp-original',0x7c6aff);
+  if(result.gen_stl_url)fetch(result.gen_stl_url).then(r=>r.arrayBuffer()).then(b=>loadSTLViewer(b,'cmp-generated',0xff6a9b));
+  const corrUrl=result.corrected_stl_url||result.gen_stl_url;
+  if(corrUrl)fetch(corrUrl).then(r=>r.arrayBuffer()).then(b=>loadSTLViewer(b,'cmp-corrected',0x4fffb0));
+  // Reveal Step 5 — user will decide whether to run supervisor or skip to export
+  setTimeout(()=>showStep('step-enhance'), 800);
+}
+
+function switchTab(name){
+  document.getElementById('tab-corrected').style.display=name==='corrected'?'':'none';
+  document.getElementById('tab-generated').style.display=name==='generated'?'':'none';
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',(i===0&&name==='corrected')||(i===1&&name==='generated')));
+}
+
+function copyCode(which){
+  const code=document.getElementById(`code-${which}`).textContent;
+  navigator.clipboard.writeText(code);
+  event.target.textContent='KOPIERT!';
+  setTimeout(()=>event.target.textContent='KOPIEREN',2000);
+}
+
+function showError(msg){
+  document.getElementById('progressSteps').innerHTML+=`<div class="error-box" style="margin-top:12px">⚠ ${msg}</div>`;
+}
+
+function showStep(id){
+  const el=document.getElementById(id);
+  setTimeout(()=>el.classList.add('visible','active'),50);
+  setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),100);
+}
+
+function markStepDone(id){
+  const el=document.getElementById(id);
+  el.classList.remove('active');el.classList.add('done');
+  const num=el.querySelector('.step-number');
+  if(num)num.textContent='✓';
+}
+
+function markStepActive(id){document.getElementById(id).classList.add('active');}
+function escapeHtml(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function resetApp(){location.reload();}
+
+// ── Vision Enhancement (Step 5) ──────────────────────────────────────────
+let enhanceEvtSource=null;
+
+function startEnhancement(){
+  const model=(document.getElementById('modelInput').value||'qwen3.5:122b').trim();
+  const ollamaUrl=(document.getElementById('ollamaUrl').value||'http://127.0.0.1:11434').trim();
+  document.getElementById('enhanceBtn').disabled=true;
+  document.getElementById('enhance-progress').style.display='';
+  markStepActive('step-enhance');
+  addLog('── Supervisor-Model Correction ──','step','log');
+  addLog(`Modell: ${model} · ${ollamaUrl}`,'data','log');
+
+  // Capture the Step-4 Three.js canvases as PNG screenshots
+  const origCanvas=document.getElementById('cmp-original');
+  const corrCanvas=document.getElementById('cmp-corrected');
+  const origImg=origCanvas?origCanvas.toDataURL('image/png').split(',')[1]:'';
+  const corrImg=corrCanvas?corrCanvas.toDataURL('image/png').split(',')[1]:'';
+  addLog('Canvas-Screenshots erfasst (original + skaliert)','info','log');
+
+  fetch(`/enhance/${currentJobId}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({original_img:origImg,corrected_img:corrImg,model,ollama_url:ollamaUrl})
+  })
+  .then(async r=>{
+    const text=await r.text();
+    try{ return JSON.parse(text); }
+    catch(e){ throw new Error(`Server ${r.status}: ${text.slice(0,300)}`); }
+  })
+  .then(data=>{
+    if(data.error)throw new Error(data.error);
+    addLog('Job gestartet — warte auf Antwort…','info','log');
+    pollEnhancement();
+  })
+  .catch(e=>{showEnhanceError(e.message);});
+}
+
+function pollEnhancement(){
+  if(enhanceEvtSource){ enhanceEvtSource.close(); }
+  let finished=false;
+  enhanceEvtSource=new EventSource(`/enhance_stream/${currentJobId}`);
+
+  enhanceEvtSource.onmessage=e=>{
+    console.log('[enhance SSE]', e.data);
+    let data;
+    try{ data=JSON.parse(e.data); }
+    catch(err){ console.error('[enhance SSE] parse error', e.data); enhanceEvtSource.close(); showEnhanceError('Bad server event: '+e.data.slice(0,300)); return; }
+
+    updateEnhanceProgress(data.status, data.message);
+    addLog(`[${data.status}] ${data.message}`,'info','log');
+
+    if(data.status==='done'){
+      finished=true;
+      enhanceEvtSource.close();
+      markStepDone('step-enhance');
+      addLog('Supervisor Correction abgeschlossen ✓','success','log');
+      showEnhancedResult(data.result);
+    }else if(data.status==='error'){
+      finished=true;
+      enhanceEvtSource.close();
+      addLog('Fehler: '+data.message,'error','log');
+      showEnhanceError(data.message);
+    }
+  };
+
+  // onerror fires on normal server-close too — only show error if job never finished
+  enhanceEvtSource.onerror=()=>{
+    enhanceEvtSource.close();
+    if(!finished){
+      console.error('[enhance SSE] connection lost before job finished');
+      showEnhanceError('Connection lost before job finished — check Flask terminal for details');
+    }
+  };
+}
+
+function updateEnhanceProgress(status,message){
+  const llmEl=document.getElementById('prog-enhance-llm');
+  const execEl=document.getElementById('prog-enhance-exec');
+  const scaleEl=document.getElementById('prog-enhance-scale');
+  if(status==='calling_llm'){
+    llmEl.className='progress-item running';
+    llmEl.querySelector('.progress-text').textContent=message;
+    llmEl.querySelector('.progress-icon').innerHTML='<div class="spinner"></div>';
+    addLog(message,'info','log');
+  }else if(status==='executing'){
+    llmEl.className='progress-item done';
+    llmEl.querySelector('.progress-text').textContent='Supervisor model abgeschlossen ✓';
+    llmEl.querySelector('.progress-icon').textContent='✓';
+    execEl.className='progress-item running';
+    execEl.querySelector('.progress-text').textContent=message;
+    execEl.querySelector('.progress-icon').innerHTML='<div class="spinner"></div>';
+    addLog(message,'info','log');
+  }else if(status==='rescaling'){
+    execEl.className='progress-item done';
+    execEl.querySelector('.progress-text').textContent='Code ausgeführt ✓';
+    execEl.querySelector('.progress-icon').textContent='✓';
+    scaleEl.className='progress-item running';
+    scaleEl.querySelector('.progress-text').textContent=message;
+    scaleEl.querySelector('.progress-icon').innerHTML='<div class="spinner"></div>';
+    addLog(message,'info','log');
+  }else if(status==='done'){
+    llmEl.className='progress-item done'; llmEl.querySelector('.progress-icon').textContent='✓';
+    execEl.className='progress-item done'; execEl.querySelector('.progress-icon').textContent='✓';
+    scaleEl.className='progress-item done';
+    scaleEl.querySelector('.progress-text').textContent='Rescaling abgeschlossen ✓';
+    scaleEl.querySelector('.progress-icon').textContent='✓';
+  }else if(status==='error'){
+    document.querySelectorAll('#enhance-progress .progress-item.running').forEach(el=>{
+      el.className='progress-item error';
+      el.querySelector('.progress-text').textContent=message||'Error';
+      el.querySelector('.progress-icon').textContent='✗';
+    });
+  }
+}
+
+function showEnhancedResult(result){
+  const el=document.getElementById('enhance-result');
+  el.style.display='';
+  const finalUrl=result.rescaled_stl_url||result.stl_url;
+  el.innerHTML=`
+    <div class="triple-grid" style="margin:20px 0">
+      <div><div class="viewer-wrap"><div class="viewer-label">Original</div><canvas id="enh-original"></canvas></div></div>
+      <div><div class="viewer-wrap"><div class="viewer-label" style="color:var(--success)">Skaliert (Step 4)</div><canvas id="enh-corrected"></canvas></div></div>
+      <div><div class="viewer-wrap"><div class="viewer-label gold-label">Supervisor + Rescaled ✦</div><canvas id="enh-enhanced"></canvas></div></div>
+    </div>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">PYTHON · CADQUERY · SUPERVISOR CORRECTED</span>
+        <button class="copy-btn" id="copyEnhBtn" onclick="copyEnhancedCode()">KOPIEREN</button>
+      </div>
+      <pre id="code-enhanced">${escapeHtml(result.code)}</pre>
+    </div>
+    <div class="actions" style="margin-top:16px">
+      <a class="btn btn-success" href="${finalUrl}" download>↓ Korrigierte STL herunterladen</a>
+      ${result.stl_url?`<a class="btn btn-outline" href="${result.stl_url}" download>↓ Roh (vor Rescaling)</a>`:''}
+      <button class="btn btn-outline" onclick="resetApp()">↺ Neu starten</button>
+    </div>`;
+
+  if(inputBuffer)loadSTLViewer(inputBuffer,'enh-original',0x7c6aff);
+  fetch(`/results/${currentJobId}_corrected.stl`).then(r=>r.arrayBuffer()).then(b=>loadSTLViewer(b,'enh-corrected',0x4fffb0)).catch(()=>{});
+  fetch(finalUrl).then(r=>r.arrayBuffer()).then(b=>loadSTLViewer(b,'enh-enhanced',0xffd700));
+  // Unlock "supervisor result" option in Step 6 and reveal the step pre-selected
+  const optSup=document.getElementById('opt-supervised');
+  if(optSup){ optSup.classList.remove('disabled'); optSup.querySelector('input').disabled=false; }
+  showExportStep(true);
+}
+
+function copyEnhancedCode(){
+  navigator.clipboard.writeText(document.getElementById('code-enhanced').textContent);
+  const btn=document.getElementById('copyEnhBtn');
+  btn.textContent='KOPIERT!';
+  setTimeout(()=>btn.textContent='KOPIEREN',2000);
+}
+
+// ── Step 6: Translate & Export to SolidWorks ─────────────────────────────
+let exportPollInterval = null;
+
+function showExportStep(useSupervisor){
+  showStep('step-export');
+  document.getElementById('export-path-jobid').textContent=currentJobId;
+  selectExportSource(useSupervisor?'supervised':'original');
+}
+
+function skipToExport(){
+  document.getElementById('skipEnhanceBtn').disabled=true;
+  showExportStep(false);
+}
+
+function selectExportSource(value){
+  document.querySelectorAll('.source-opt:not(.disabled)').forEach(el=>{
+    const checked = el.querySelector('input').value === value;
+    el.classList.toggle('selected', checked);
+    el.querySelector('input').checked = checked;
+  });
+}
+
+function startExport(){
+  if(!currentJobId) return;
+  const useSup = document.querySelector('input[name="export-source"]:checked')?.value === 'supervised';
+  document.getElementById('exportBtn').disabled = true;
+  document.getElementById('export-progress').style.display = '';
+  document.getElementById('export-done').style.display = 'none';
+  markStepActive('step-export');
+  addLog('── Translate & Export to SolidWorks ──','step','log');
+  addLog(`Source: ${useSup?'supervisor result':'step-4 result'}`,'data','log');
+
+  fetch(`/export/${currentJobId}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({use_supervised:useSup})
+  })
+  .then(r=>r.json())
+  .then(d=>{ if(d.error) throw new Error(d.error); pollExport(); })
+  .catch(e=>showExportError(e.message));
+}
+
+function pollExport(){
+  if(exportPollInterval) clearInterval(exportPollInterval);
+  exportPollInterval = setInterval(async()=>{
+    try{
+      const res = await fetch(`/export_status/${currentJobId}`);
+      const data = await res.json();
+      updateExportProgress(data.status, data.message);
+      if(data.json_path){
+        // Show full absolute path once it's known
+        document.getElementById('export-path-text').textContent = data.json_path;
+      }
+      if(data.status==='done'||data.status==='error'){
+        clearInterval(exportPollInterval);
+        exportPollInterval = null;
+        if(data.status==='done'){
+          markStepDone('step-export');
+          addLog('Export abgeschlossen ✓','success','log');
+          const doneEl = document.getElementById('export-done');
+          doneEl.style.display = '';
+          doneEl.innerHTML = `<div class="path-box" style="border-color:rgba(79,255,176,.3)">
+            <span style="color:var(--success)">✓ JSON gespeichert:</span><br>
+            <span style="color:#c9c3ff">${escapeHtml(data.json_path)}</span>
+          </div>`;
+          document.getElementById('exportBtn').disabled = false;
+        } else {
+          showExportError(data.message);
+        }
+      }
+    }catch(err){ /* network hiccup — keep polling */ }
+  }, 1000);
+}
+
+function updateExportProgress(status, message){
+  const trEl = document.getElementById('prog-export-translate');
+  const buEl = document.getElementById('prog-export-build');
+  addLog(`[export:${status}] ${message}`,'info','log');
+  if(status==='translating'){
+    trEl.className='progress-item running';
+    trEl.querySelector('.progress-text').textContent=message;
+    trEl.querySelector('.progress-icon').innerHTML='<div class="spinner"></div>';
+  }else if(status==='building'){
+    trEl.className='progress-item done'; trEl.querySelector('.progress-icon').textContent='✓';
+    trEl.querySelector('.progress-text').textContent='JSON translation complete ✓';
+    buEl.className='progress-item running';
+    buEl.querySelector('.progress-text').textContent=message;
+    buEl.querySelector('.progress-icon').innerHTML='<div class="spinner"></div>';
+  }else if(status==='done'){
+    trEl.className='progress-item done'; trEl.querySelector('.progress-icon').textContent='✓';
+    buEl.className='progress-item done';
+    buEl.querySelector('.progress-text').textContent='Builder complete ✓';
+    buEl.querySelector('.progress-icon').textContent='✓';
+  }else if(status==='error'){
+    [trEl,buEl].forEach(el=>{ if(el.className.includes('running')){ el.className='progress-item error'; el.querySelector('.progress-icon').textContent='✗'; } });
+  }
+}
+
+function showExportError(msg){
+  addLog('Export ERROR: '+msg,'error','log');
+  const doneEl = document.getElementById('export-done');
+  doneEl.style.display = '';
+  doneEl.innerHTML = `<div class="error-box" style="margin-top:8px;white-space:pre-wrap">⚠ ${escapeHtml(msg)}</div>`;
+  document.getElementById('exportBtn').disabled = false;
+}
+
+function showEnhanceError(msg){
+  console.error('[enhance error]', msg);
+  // Show prominently below the step body, always visible
+  const body=document.querySelector('#step-enhance .step-body');
+  // Remove any previous error box
+  body.querySelectorAll('.enhance-error-box').forEach(el=>el.remove());
+  body.insertAdjacentHTML('beforeend',
+    `<div class="error-box enhance-error-box" style="margin-top:16px;font-size:13px;white-space:pre-wrap">⚠ ${escapeHtml(msg)}</div>`);
+  document.getElementById('enhanceBtn').disabled=false;
+  addLog('ERROR: '+msg,'error','log');
+}
+</script>
+</body>
+</html>
